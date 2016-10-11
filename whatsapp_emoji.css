@@ -1,0 +1,27 @@
+.whatsapp-emoji-injector-panel {
+	background: #58e870;
+	padding-top: 5px;
+}
+
+.whatsapp-emoji-injector-panel-body {
+	height: 150px;
+	background: #f0f0f0;
+	padding: 10px;
+}
+
+.whatsapp-emoji-injector-emoji-item {
+	display: inline-block;
+	margin: 6px;
+	cursor: pointer;
+}
+
+.whatsapp-emoji-injector-emoji-item-show {
+	transform: translateY(0px);
+}
+
+.whatsapp-emoji-injector-emoji-item__img {
+	height: 16px;
+	width: 16px;
+	display: inline-block;
+	border: 0;
+}
