@@ -1,0 +1,15 @@
+{
+  "manifest_version": 2,
+
+  "name": "Whatasapp Emoji",
+  "description": "Provide Whatsapp Emoji shortcut assistance",
+  "version": "1.0",
+  "content_scripts": [{
+      "matches": ["https://web.whatsapp.com/*"],
+      "css": ["whatsapp_emoji.css"],
+      "js": ["emoji_injector.js"]
+  }],
+  "web_accessible_resources": [
+    "emojis_sheet.png"
+  ]
+}
