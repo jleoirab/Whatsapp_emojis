@@ -295,7 +295,7 @@
 	EmojiInputManager.prototype.onInputEmojiContainerMutate = function(){
 		var text = this._inputEmojiContainer.innerText;
 		var match = this._getPartialShortName();
-
+		console.log(match);
 		if (match && match.charAt(match.length - 1) !== ':'){
 			this._stringTracked = match;
 			this._suggestionBox.render(getEmojiList(this._stringTracked));
@@ -304,16 +304,10 @@
 			this._stringTracked = match;
 			var emoji = EMOJI_MAP[this._stringTracked];
 
-			if (this._emojiSelected){
-				this._insertEmoji(emoji, true /* collapseCursor */);
-				this._suggestionBox.remove();
-
-				return;
-			}
-
 			if (emoji){
-				this._suggestionBox.render([emoji.key]);
 				this._emojiSelected = true;
+				this._suggestionBox.remove();
+				this._insertEmoji(emoji, true /* collapseCursor */);
 			} else{
 				this._suggestionBox.render([]);
 			}
@@ -388,6 +382,8 @@
 		selection.removeAllRanges();
 		selection.addRange(range);
 
+		// deceive whatsapp so it can parse emoji when you send a message.
+		document.execCommand('insertText', " ");
 
 		// TODO: Figure out how to make the emojis coloured in the input
 		// container. Whatsapp is preventing this. Need to figure out a
