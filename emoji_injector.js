@@ -6,8 +6,8 @@
 
 	var appContainer, inputManager;
 
-	var INCOMPLETE_EMOJI_SEARCH_REG = /(:[a-z0-9_]+)\s*$/;
-	var COMPLETE_EMOJI_SEARCH_REG = /(:[a-z0-9_]+):\s*$/;
+	var INCOMPLETE_EMOJI_SEARCH_REG = /(?!:[a-z0-9_]+:)(:[a-z0-9_]+)/g;
+	var COMPLETE_EMOJI_SEARCH_REG = /(:[a-z0-9_]+:)/g;
 
 	if (document.readyState === 'complete'){
 		initialize();
@@ -66,6 +66,7 @@
 			mid = Math.floor((end - start) / 2) + start;
 			if (start === end - 1) break;
 
+			// Dev Mode. Don't deploy this!
 			if (++loopCount == 100) throw ("Infinite Loop");
 		}
 
@@ -102,8 +103,8 @@
 		for (var i = 0; i < container.childNodes.length; ++i) {
 			var node = container.childNodes[i];
 
-			if (node.nodeType === Node.TEXT_NODE) {
-				if (node.textContent.includes(text)) {
+			if (node.textContent.includes(text)){
+				if (node.nodeType === Node.TEXT_NODE) {
 					var start = node.textContent.indexOf(text);
 					var end = start + text.length;
 
@@ -112,9 +113,7 @@
 						start: start,
 						end: end
 					};
-				}
-			} else if (node.nodeType === Node.ELEMENT_NODE) {
-				if (node.textContent.includes(text)) {
+				} else if (node.nodeType === Node.ELEMENT_NODE) {
 					return findParentTextNode(node, text);
 				}
 			}
@@ -123,7 +122,53 @@
 		return null;
 	}
 
-	var EmojiSuggestionsBox = function(parentContainer){
+	function getElementMatchingSelector(selector, node){
+		var element = node;
+		if (node.nodeType !== Node.ELEMENT_NODE) element = node.parentElement;
+
+		while (element && !element.matches(selector)) {
+			element = element.parentElement;
+		}
+
+		return element;
+	}
+
+	function globalMatch(regex, string){
+		var matches = []
+		var match;
+
+		while((match = regex.exec(string)) !== null){
+			matches.push(match);
+		}
+
+		return matches;
+	}
+
+	function getRelativeOffset(node, focusNode, focusOffset){
+		if (node.nodeType === Node.TEXT_NODE && node !== focusNode ||
+				!node.contains(focusNode)){
+			throw "Node does not conain selection";
+		}
+
+		if (node.nodeType === Node.TEXT_NODE) return focusOffset;
+
+		var index = 0;
+		for(var i = 0; i < node.childNodes.length; ++i){
+			var childNode = node.childNodes[i];
+
+			if (childNode === focusNode){
+				return index + focusOffset;
+			} else if (childNode.nodeType === Node.ELEMENT_NODE &&
+					childNode.contains(focusNode)) {
+				return index + getRelativeOffset(childNode, focusNode,
+						focusOffset);
+			} else {
+				index += childNode.textContent.length;
+			}
+		}
+	}
+
+	var EmojiSuggestionsBox = function(options){
 		this._imgURL = chrome.extension.getURL('emojis_sheet.png');
 		this._rendered = false;
 
@@ -134,7 +179,13 @@
 		this.panelBody.className = 'whatsapp-emoji-injector-panel-body'
 
 		this.panel.appendChild(this.panelBody);
-		this.parentContainer = parentContainer;
+
+		// Must provide this value
+		this.inputManagerHandler = options.inputManagerHandler;
+
+		// This is optional
+		this.parentContainer = options.parentContainer || null;
+
 	}
 
 	EmojiSuggestionsBox.prototype.updateParentContainer = function(parent){
@@ -183,13 +234,14 @@
 		var backgroundPosition = "-" +(emoji.x * 16) + "px -" + (emoji.y * 16) +
 			 "px";
 
+		var container = document.createElement('div');
+		container.classList.add('whatsapp-emoji-injector-emoji-item');
+		container.dataset.shortName = emoji.key;
+
 		var img = document.createElement('span');
 		img.classList.add('whatsapp-emoji-injector-emoji-item__img');
 		img.style.backgroundImage = "url(" + this._imgURL + ")";
 		img.style.backgroundPosition = backgroundPosition;
-
-		var container = document.createElement('div');
-		container.classList.add('whatsapp-emoji-injector-emoji-item');
 
 		var textContainer = document.createElement('span');
 		textContainer.classList.add('whatsapp-emoji-injector-emoji-item__text');
@@ -197,14 +249,26 @@
 
 		container.appendChild(img);
 		container.appendChild(textContainer);
+		container.addEventListener('click', this.onEmojiClicked.bind(this));
 
 		this.panelBody.appendChild(container);
 	}
 
+	EmojiSuggestionsBox.prototype.onEmojiClicked = function(evt){
+		var container = getElementMatchingSelector(
+				'.whatsapp-emoji-injector-emoji-item', evt.target);
+		var emojiSelected = container.dataset.shortName;
+
+		this.inputManagerHandler(emojiSelected);
+	}
+
 	var EmojiInputManager = function(){
 		this._inputEmojiContainer = null;
-		this._emoji_selected = null;
-		this._suggestionBox = new EmojiSuggestionsBox();
+		this._emojiSelected = false;
+		this._stringTracked = "";
+		this._suggestionBox = new EmojiSuggestionsBox({
+			inputManagerHandler: this.suggestionBoxHandler.bind(this)
+		});
 
 		this._mutationObserver = new MutationObserver(
 				this.onInputEmojiContainerMutate.bind(this));
@@ -230,46 +294,94 @@
 
 	EmojiInputManager.prototype.onInputEmojiContainerMutate = function(){
 		var text = this._inputEmojiContainer.innerText;
-		var match;
+		var match = this._getPartialShortName();
 
-		if (match = text.match(INCOMPLETE_EMOJI_SEARCH_REG)){
-			this._suggestionBox.render(getEmojiList(match[0].trim()));
-		} else if (match = text.match(COMPLETE_EMOJI_SEARCH_REG)){
-			if (this._emoji_selected){
-				this._insertEmoji();
+		if (match && match.charAt(match.length - 1) !== ':'){
+			this._stringTracked = match;
+			this._suggestionBox.render(getEmojiList(this._stringTracked));
+		} else if (match) {
+			// It's actually a full short name
+			this._stringTracked = match;
+			var emoji = EMOJI_MAP[this._stringTracked];
+
+			if (this._emojiSelected){
+				this._insertEmoji(emoji, true /* collapseCursor */);
 				this._suggestionBox.remove();
 
 				return;
 			}
 
-			emoji = EMOJI_MAP[match[0].trim()];
-
 			if (emoji){
 				this._suggestionBox.render([emoji.key]);
-				this._emoji_selected = emoji;
+				this._emojiSelected = true;
 			} else{
 				this._suggestionBox.render([]);
 			}
 		} else {
+			this._stringTracked = "";
+			this._emojiSelected = false;
 			this._suggestionBox.remove();
 		}
 	}
 
-	EmojiInputManager.prototype._insertEmoji = function() {
-		var emoji = EMOJI_MAP[this._emoji_selected];
+	EmojiInputManager.prototype._getPartialShortName = function(){
+		var selection = window.getSelection();
+		if (!selection.isCollapsed) return;
+
+		var text = this._inputEmojiContainer.textContent;
+
+		// Everything from here can be optimized. But This should be fine for
+		// now.
+		var incompleteShortNames = globalMatch(INCOMPLETE_EMOJI_SEARCH_REG,
+				text);
+		var completeShortNames = globalMatch(COMPLETE_EMOJI_SEARCH_REG, text);
+
+		var focusIndex = getRelativeOffset(this._inputEmojiContainer,
+				selection.focusNode, selection.focusOffset);
+
+		var smallestDiff = Infinity;
+		var closestMatch;
+		incompleteShortNames.concat(completeShortNames).forEach(function(match){
+			if (match.index < focusIndex &&
+					match.index + match[0].length >= focusIndex){
+				var diff = focusIndex - match.index
+				if (diff < smallestDiff){
+					smallestDiff = diff;
+					closestMatch = match[0];
+				}
+			}
+		});
+
+		return closestMatch;
+	}
+
+	EmojiInputManager.prototype.suggestionBoxHandler = function(shortName){
+		this._insertEmoji(EMOJI_MAP[shortName], false /* collapseCursor */);
+		this._suggestionBox.remove();
+	}
+
+	EmojiInputManager.prototype._insertEmoji = function(emoji, collapseCursor){
 		var result = findParentTextNode(this._inputEmojiContainer,
-				this._emoji_selected.key);
+				this._stringTracked);
+
+		if (!result || !emoji) return;
+
+		var selection = window.getSelection();
 
 		var range = new Range();
 		range.setStart(result.node, result.start);
-		range.setEnd(result.node, result.end);
 
-		selection = window.getSelection();
+		if (collapseCursor) {
+			range.setEnd(selection.focusNode, selection.focusOffset);
+		} else {
+			range.setEnd(result.node, result.end);
+		}
+
 		selection.removeAllRanges();
 		selection.addRange(range);
 
 		range.deleteContents();
-		range.insertNode(document.createTextNode(this._emoji_selected.value +
+		range.insertNode(document.createTextNode(emoji.value +
 				" "));
 		range.collapse();
 
@@ -282,6 +394,6 @@
 		// feasible hack to this;
 
 
-		this._emoji_selected = false;
+		this._emojiSelected = false;
 	}
 })();

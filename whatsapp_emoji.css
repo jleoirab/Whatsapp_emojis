@@ -13,6 +13,12 @@
 	display: inline-block;
 	margin: 6px;
 	cursor: pointer;
+	border-radius: 8px;
+	padding: 4px;
+}
+
+.whatsapp-emoji-injector-emoji-item:hover {
+	background: rgba(0, 191, 165, 0.20);
 }
 
 .whatsapp-emoji-injector-emoji-item-show {
